@@ -1,0 +1,28 @@
+<VSTemplate Version="3.0.0" xmlns="http://schemas.microsoft.com/developer/vstemplate/2005" Type="Project">
+  <TemplateData>
+    <Name>Beacon Object File (BOF)</Name>
+    <Description>Beacon Object File project template for Cobalt Strike</Description>
+    <ProjectType>VC</ProjectType>
+    <ProjectSubType>
+    </ProjectSubType>
+    <SortOrder>1000</SortOrder>
+    <CreateNewFolder>true</CreateNewFolder>
+    <DefaultName>Beacon Object File (BOF)</DefaultName>
+    <ProvideDefaultName>true</ProvideDefaultName>
+    <LocationField>Enabled</LocationField>
+    <EnableLocationBrowseButton>true</EnableLocationBrowseButton>
+    <Icon>__TemplateIcon.ico</Icon>
+  </TemplateData>
+  <TemplateContent>
+    <Project TargetFileName="BOF-Template.vcxproj" File="BOF-Template.vcxproj" ReplaceParameters="true">
+      <ProjectItem ReplaceParameters="false" TargetFileName="$projectname$.vcxproj.filters">BOF-Template.vcxproj.filters</ProjectItem>
+      <ProjectItem ReplaceParameters="false" TargetFileName="bof.cpp">bof.cpp</ProjectItem>
+      <ProjectItem ReplaceParameters="false" TargetFileName="mock.cpp">BASE\mock.cpp</ProjectItem>
+      <ProjectItem ReplaceParameters="false" TargetFileName="beacon.h">beacon.h</ProjectItem>
+      <ProjectItem ReplaceParameters="false" TargetFileName="helpers.h">BASE\helpers.h</ProjectItem>
+      <ProjectItem ReplaceParameters="false" TargetFileName="mock.h">BASE\mock.h</ProjectItem>
+      <ProjectItem ReplaceParameters="false" TargetFileName="Makefile">Makefile</ProjectItem>
+      <ProjectItem ReplaceParameters="false" TargetFileName="packages.config">packages.config</ProjectItem>
+    </Project>
+  </TemplateContent>
+</VSTemplate>
