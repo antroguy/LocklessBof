@@ -229,6 +229,7 @@
     <ClCompile Include="LocklessDownload.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\User\source\repos\BOF-Template\x64\Debug\LocklessDownload.exe</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="LocklessEnum.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="base\helpers.h" />
