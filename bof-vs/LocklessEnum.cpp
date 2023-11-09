@@ -15,7 +15,7 @@
 #undef DECLSPEC_IMPORT
 #define DECLSPEC_IMPORT
 #endif
-
+#pragma comment (lib, "Psapi.lib")
 #define CALLBACK_FILE 0x02
 #define CALLBACK_FILE_WRITE 0x08
 #define CALLBACK_FILE_CLOSE 0x09
@@ -61,7 +61,9 @@ extern "C" {
     DFR(MSVCRT, wcscmp)
     DFR(MSVCRT, wcslen)
     DFR(KERNEL32, GetFileType);
-    DFR(KERNEL32, GetProcessImageFileNameW);
+    DFR(KERNEL32, K32GetProcessImageFileNameW);
+    DFR(UCRTBASE, towlower);
+    #define tolower UCRTBASE$towlower
     #define GetLastError KERNEL32$GetLastError
     #define SHGetFolderPathA SHELL32$SHGetFolderPathA
     #define PathAppendA SHLWAPI$PathAppendA
@@ -85,33 +87,39 @@ extern "C" {
     #define wcscmp MSVCRT$wcscmp
     #define GetFileType KERNEL32$GetFileType
     #define wcslen MSVCRT$wcslen
-    #define GetPRocessImageFileNameW KERNEL32$GetProcessImageFileNameW
+    #define GetProcessImageFileNameW KERNEL32$K32GetProcessImageFileNameW
 
 
-        void go(char* buf, int len) {
-
+    void go(char* buf, int len) {
+        //Local Variables
         DWORD pid = 0;
         wchar_t* filename = NULL;
         wchar_t* processName = NULL;
         datap parser;
+
+        //Parse Beacon Arguments
         BeaconDataParse(&parser, buf, len);
         filename = (wchar_t*)BeaconDataExtract(&parser, NULL);
         size_t filenameLen = wcslen(filename);
-
-        //Value will either be a wchar_t or int based off wither key value filename or handle_id was chosen
+        processName = NULL;
         processName = (wchar_t*)BeaconDataExtract(&parser, NULL);
         size_t processLen = wcslen(processName);
+
+        //Checks if process name was provided
         if (processName == NULL) {
             BeaconPrintf(CALLBACK_OUTPUT, "Attempting to enumerate file handle to % .*S ", filenameLen, filename);
         }
         else {
+            //BeaconPrintf(CALLBACK_OUTPUT, "Attempting to enumerate file handle to % .*S ", filenameLen, filename);
+
             BeaconPrintf(CALLBACK_OUTPUT, "Attempting to enumerate handle to file % .*S from % .*S processes", filenameLen, filename,processLen,processName);
+            
             for (int i = 0; processName[i] != L'\0'; i++) {
-                processName[i] = towlower(processName[i]);
+                processName[i] = CharLowerA(processName[i]);
             }
         }
         
-
+        //Handle variables
         DWORD dwErrorCode = ERROR_SUCCESS;
         PSYSTEM_HANDLE_INFORMATION handleInfo = NULL;
         PSYSTEM_HANDLE_TABLE_ENTRY_INFO curHandle = NULL;
@@ -158,35 +166,54 @@ extern "C" {
             BeaconPrintf(CALLBACK_ERROR, "Error: Failed to enumerate system handles: error Code %lu", dwErrorCode);
             return;
         }
+
         //Iterate through System Handles
-        int prevPID = 0;
- 
+        int prevPID = 0; //This is used to avoid having to open a handle to the same process more than once
         for (int i = 0; i < handleInfo->HandleCount; i++) {
+            //Allocate memory for handle table entry info
             SYSTEM_HANDLE_TABLE_ENTRY_INFO objHandle;
             memset(&objHandle, 0, sizeof(SYSTEM_HANDLE_TABLE_ENTRY_INFO));
-         
             objHandle = handleInfo->Handles[i];
+
+            //If the UniqueProcessID is not equal to the previous PID, we already have attempted to open a handle to the process. Just skip.
             if (handleInfo->Handles[i].UniqueProcessId != prevPID) {
                 prevPID = handleInfo->Handles[i].UniqueProcessId;
-
+                //If the current PID is not equal to the previous PID, clean up the handle and obtain a handle to the new process 
                 if (processHandle) {
                     NtClose(processHandle);
                     processHandle = NULL;
                 }
                 processHandle = OpenProcess(PROCESS_DUP_HANDLE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, handleInfo->Handles[i].UniqueProcessId);
 
+                //If null, go to next handle
                 if (NULL == processHandle) {
-                    //dwErrorCode = GetLastError();
                     continue;
                 }
-                //Check if a process name was provided. If so, only check handles in a process that includes 
+                //Check if a process name was provided. If so, only check handles in a process that includes the name provided.
                 WCHAR imageFileName[MAX_PATH];
                 if (processName) {
+                    GetProcessImageFileNameW(processHandle, imageFileName, 260);
+                    
                     if (GetProcessImageFileNameW(processHandle, imageFileName, MAX_PATH) > 0) {
                         // Extract the process name from the full path
-                        WCHAR* processImagePath = wcsrchr(imageFileName, L'\\');
-                        // Initialize the file name as an empty string
-                        if (!wcsstr(processImagePath, processName)) {
+                        wchar_t* processImageName = imageFileName;
+
+                        // Find the last occurrence of the path separator '\'
+                        for (int i = wcslen(processImageName) - 1; i >= 0; i--) {
+                            if (imageFileName[i] == '\\') {
+                                // Set the file name to the portion of the string after the last '\'
+                                processImageName = (PWSTR)(imageFileName + i + 1);
+                                break;
+                            }
+                        }
+                        // Convert to Lower just in case.
+                        /*
+                        for (int i = 0; processImageName[i] != L'\0'; i++) {
+                            processImageName[i] = towlower(processImageName[i]);
+
+                        }*/
+                        // Check if the provided process name exists within the target process name
+                        if (!wcsstr(processImageName, processName)) {
                             processHandle = NULL;
                             continue;
                         }
@@ -194,13 +221,14 @@ extern "C" {
                 }
             }
             else {
+                //If the current handles PID was equal to the previous PID and we failed to open a handle to it, it will be NULL. We catch that here and continue on to the next handle.  
                 if (NULL == processHandle) {
                     continue;
                 }
             }               
   
 
-            //Check if handle type is of type file
+            //Check if handle type is of type file, else continue to next handle
             if (handleInfo->Handles[i].ObjectTypeIndex != HANDLE_TYPE_FILE) {
                 continue;
             }
@@ -287,23 +315,13 @@ extern "C" {
             if (objectName.Length)
             {
 
-                //Structures to get the fileName
-                const wchar_t* filePathBuffer = objectName.Buffer;
-                size_t length = objectName.Length / sizeof(wchar_t);
-
                 // Initialize the file name as an empty string
-                UNICODE_STRING fileName;
-                fileName.Buffer = (PWSTR)(filePathBuffer + length);
-                fileName.Length = 0;
-                fileName.MaximumLength = 0;
-
+                wchar_t* handleName = NULL;;
                 // Find the last occurrence of the path separator '\'
-                for (int i = length - 1; i >= 0; i--) {
-                    if (filePathBuffer[i] == '\\') {
+                for (int i = objectName.Length / sizeof(wchar_t) - 1; i >= 0; i--) {
+                    if (objectName.Buffer[i] == '\\') {
                         // Set the file name to the portion of the string after the last '\'
-                        fileName.Buffer = (PWSTR)(filePathBuffer + i + 1);
-                        fileName.Length = (length - i - 1) * sizeof(wchar_t);
-                        fileName.MaximumLength = fileName.Length;
+                        handleName = (PWSTR)(objectName.Buffer + i + 1);
                         break;
                     }
                 }
@@ -313,11 +331,9 @@ extern "C" {
                 if (filename != NULL) {
                     UNICODE_STRING substring;
                     RtlInitUnicodeString(&substring, filename);
-                    result = wcscmp(fileName.Buffer, substring.Buffer);
-                    //BeaconPrintf(CALLBACK_OUTPUT, "FileName: % .*S", fileName.Length, fileName.Buffer);
-                    result = wcscmp(fileName.Buffer, filename);
+                    result = wcscmp(handleName, filename);
                     if (!result) {
-                        BeaconPrintf(CALLBACK_OUTPUT, "Process ID: %ld, [% #d] % .*S\n", handleInfo->Handles[i].UniqueProcessId, handleInfo->Handles[i].HandleValue, objectName.Length / 2, objectName.Buffer);
+                        BeaconPrintf(CALLBACK_OUTPUT, "Process ID %ld [Handle ID% #d] - % .*S [% .*S]\n", handleInfo->Handles[i].UniqueProcessId, handleInfo->Handles[i].HandleValue,wcslen(handleName),handleName, objectName.Length / 2, objectName.Buffer);
                     }
                 }
 
@@ -328,7 +344,7 @@ extern "C" {
             BeaconPrintf(CALLBACK_OUTPUT, "Error: Failed to find file handle within the specified process");
         }
 
-
+    //Perform Cleanup
     cleanup:
         if (handleInfo) {
             VirtualFree(handleInfo, 0, MEM_RELEASE);
