@@ -37,52 +37,48 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
     WINBASEAPI int __cdecl MSVCRT$wcstombs_s(size_t* preturnValue, char* mbstr, size_t sizeInBytes,const wchar_t* wcstr, size_t count);
     #define wcstombs_s MSVCRT$wcstombs_s
 #endif
+    //KERNEL32 DFR
     DFR(KERNEL32, GetLastError);
-    DFR(SHELL32, SHGetFolderPathA);
-    DFR(SHLWAPI, PathAppendA);
     DFR(KERNEL32, GetProcAddress);
     DFR(KERNEL32, GetModuleHandleA);
-    DFR(KERNEL32, VirtualAlloc);
-    DFR(KERNEL32, VirtualFree);
     DFR(KERNEL32, OpenProcess);
     DFR(KERNEL32, CloseHandle);
     DFR(KERNEL32, GetCurrentProcess);
     DFR(KERNEL32, HeapAlloc)
     DFR(KERNEL32, GetProcessHeap);
     DFR(KERNEL32, HeapReAlloc);
-    DFR(MSVCRT, memset);
+    DFR(KERNEL32, GetFileType);
     DFR(KERNEL32, HeapFree);
     DFR(KERNEL32, GlobalAlloc);
     DFR(KERNEL32, ReadFile);
     DFR(KERNEL32, SetFilePointer);
     DFR(KERNEL32, GetFileSize);
+    //MSVCRT DFR
     DFR(MSVCRT, wcstombs)
     DFR(MSVCRT, wcscmp)
     DFR(MSVCRT, wcslen)
-    DFR(KERNEL32, GetFileType);
+    DFR(MSVCRT, memset);
+    //KERNEL32 Definitions
     #define GetLastError KERNEL32$GetLastError
-    #define SHGetFolderPathA SHELL32$SHGetFolderPathA
-    #define PathAppendA SHLWAPI$PathAppendA
+    #define GetFileType KERNEL32$GetFileType
     #define GetProcAddress KERNEL32$GetProcAddress
     #define GetModuleHandleA KERNEL32$GetModuleHandleA
-    #define VirtualAlloc KERNEL32$VirtualAlloc
-    #define VirtualFree KERNEL32$VirtualFree
     #define OpenProcess KERNEL32$OpenProcess
     #define CloseHandle KERNEL32$CloseHandle
     #define GetCurrentProcess KERNEL32$GetCurrentProcess
     #define HeapAlloc KERNEL32$HeapAlloc
     #define GetProcessHeap KERNEL32$GetProcessHeap
     #define HeapReAlloc KERNEL32$HeapReAlloc
-    #define memset MSVCRT$memset
     #define HeapFree KERNEL32$HeapFree
     #define GlobalAlloc KERNEL32$GlobalAlloc
     #define ReadFile KERNEL32$ReadFile
     #define SetFilePointer KERNEL32$SetFilePointer
     #define GetFileSize KERNEL32$GetFileSize
+    //MSVCRT Definitions
     #define wcstombs MSVCRT$wcstombs
     #define wcscmp MSVCRT$wcscmp
     #define wcslen MSVCRT$wcslen
-    #define GetFileType KERNEL32$GetFileType
+    #define memset MSVCRT$memset
 
     void go(char* buf,int len) {
         //Local Variables
@@ -363,7 +359,7 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
         }
     cleanup:
         if (handleInfo) {
-            VirtualFree(handleInfo, 0, MEM_RELEASE);
+            HeapFree(GetProcessHeap(),0,handleInfo);
             handleInfo = NULL;
         }
         if (processHandle) {

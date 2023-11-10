@@ -7,6 +7,7 @@
 #include <time.h>
 #include <tlhelp32.h>
 #include <Psapi.h>
+#include <WinUser.h>
 #ifdef _DEBUG
 
 #pragma comment (lib, "shell32.lib")
@@ -27,7 +28,7 @@ PVOID GetLibraryProcAddress(PSTR LibraryName, PSTR ProcName) {
 
 extern "C" {
 #include "beacon.h"
-    BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
+    void convertToLowercase(wchar_t* buffer);
     //Ran into overload issues when using DFR Macro for wcsstr/time. Switched to manual resolution isntead of using Macro for these two methods.
 #ifndef _DEBUG
     WINBASEAPI wchar_t* __cdecl MSVCRT$wcsstr(const wchar_t* _Str, const wchar_t* _SubStr);
@@ -38,56 +39,50 @@ extern "C" {
     WINBASEAPI int __cdecl MSVCRT$wcstombs_s(size_t* preturnValue, char* mbstr, size_t sizeInBytes, const wchar_t* wcstr, size_t count);
 #define wcstombs_s MSVCRT$wcstombs_s
 #endif
+    //KERNEL32 DFR
+    DFR(KERNEL32, GetFileType);
+    DFR(KERNEL32, K32GetProcessImageFileNameW);
     DFR(KERNEL32, GetLastError);
-    DFR(SHELL32, SHGetFolderPathA);
-    DFR(SHLWAPI, PathAppendA);
     DFR(KERNEL32, GetProcAddress);
     DFR(KERNEL32, GetModuleHandleA);
-    DFR(KERNEL32, VirtualAlloc);
-    DFR(KERNEL32, VirtualFree);
     DFR(KERNEL32, OpenProcess);
     DFR(KERNEL32, CloseHandle);
     DFR(KERNEL32, GetCurrentProcess);
     DFR(KERNEL32, HeapAlloc)
     DFR(KERNEL32, GetProcessHeap);
     DFR(KERNEL32, HeapReAlloc);
-    DFR(MSVCRT, memset);
     DFR(KERNEL32, HeapFree);
     DFR(KERNEL32, GlobalAlloc);
     DFR(KERNEL32, ReadFile);
     DFR(KERNEL32, SetFilePointer);
     DFR(KERNEL32, GetFileSize);
+    //MSVCRT DFR
     DFR(MSVCRT, wcstombs)
     DFR(MSVCRT, wcscmp)
     DFR(MSVCRT, wcslen)
-    DFR(KERNEL32, GetFileType);
-    DFR(KERNEL32, K32GetProcessImageFileNameW);
-    DFR(UCRTBASE, towlower);
-    #define tolower UCRTBASE$towlower
+    DFR(MSVCRT, memset);
+    //KERNEL32 Definitions
+    #define GetFileType KERNEL32$GetFileType
+    #define GetProcessImageFileNameW KERNEL32$K32GetProcessImageFileNameW
     #define GetLastError KERNEL32$GetLastError
-    #define SHGetFolderPathA SHELL32$SHGetFolderPathA
-    #define PathAppendA SHLWAPI$PathAppendA
     #define GetProcAddress KERNEL32$GetProcAddress
     #define GetModuleHandleA KERNEL32$GetModuleHandleA
-    #define VirtualAlloc KERNEL32$VirtualAlloc
-    #define VirtualFree KERNEL32$VirtualFree
     #define OpenProcess KERNEL32$OpenProcess
     #define CloseHandle KERNEL32$CloseHandle
     #define GetCurrentProcess KERNEL32$GetCurrentProcess
     #define HeapAlloc KERNEL32$HeapAlloc
     #define GetProcessHeap KERNEL32$GetProcessHeap
     #define HeapReAlloc KERNEL32$HeapReAlloc
-    #define memset MSVCRT$memset
     #define HeapFree KERNEL32$HeapFree
     #define GlobalAlloc KERNEL32$GlobalAlloc
     #define ReadFile KERNEL32$ReadFile
     #define SetFilePointer KERNEL32$SetFilePointer
     #define GetFileSize KERNEL32$GetFileSize
+    //MSVCRT Definitions
     #define wcstombs MSVCRT$wcstombs
     #define wcscmp MSVCRT$wcscmp
-    #define GetFileType KERNEL32$GetFileType
     #define wcslen MSVCRT$wcslen
-    #define GetProcessImageFileNameW KERNEL32$K32GetProcessImageFileNameW
+    #define memset MSVCRT$memset
 
 
     void go(char* buf, int len) {
@@ -111,12 +106,8 @@ extern "C" {
         }
         else {
             //BeaconPrintf(CALLBACK_OUTPUT, "Attempting to enumerate file handle to % .*S ", filenameLen, filename);
-
             BeaconPrintf(CALLBACK_OUTPUT, "Attempting to enumerate handle to file % .*S from % .*S processes", filenameLen, filename,processLen,processName);
-            
-            for (int i = 0; processName[i] != L'\0'; i++) {
-                processName[i] = CharLowerA(processName[i]);
-            }
+            convertToLowercase(processName);
         }
         
         //Handle variables
@@ -206,12 +197,8 @@ extern "C" {
                                 break;
                             }
                         }
-                        // Convert to Lower just in case.
-                        /*
-                        for (int i = 0; processImageName[i] != L'\0'; i++) {
-                            processImageName[i] = towlower(processImageName[i]);
-
-                        }*/
+                        // Convert to Lower just in case. 
+                        convertToLowercase(processImageName);
                         // Check if the provided process name exists within the target process name
                         if (!wcsstr(processImageName, processName)) {
                             processHandle = NULL;
@@ -347,7 +334,7 @@ extern "C" {
     //Perform Cleanup
     cleanup:
         if (handleInfo) {
-            VirtualFree(handleInfo, 0, MEM_RELEASE);
+            HeapFree(GetProcessHeap(),0,handleInfo);
             handleInfo = NULL;
         }
         if (processHandle) {
@@ -370,6 +357,19 @@ extern "C" {
         }
         return;
     }
+    void convertToLowercase(wchar_t* buffer) {
+        size_t i = 0;
+
+        for (size_t i = 0; i < wcslen(buffer); ++i) {
+            // Check if the character is an uppercase letter
+            if (buffer[i] >= L'A' && buffer[i] <= L'Z') {
+                // Convert to lowercase by adding the difference between uppercase and lowercase
+                buffer[i] = buffer[i] + (L'a' - L'A');
+            }
+            // Note: If the character is not an uppercase letter, it remains unchanged
+        }
+    }
+
 
 }
 
