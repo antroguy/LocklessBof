@@ -8,15 +8,15 @@
 
 beacon_command_register(
 "lockless-download",
-"Locate and copy any file blah",
-"Usage: lockless-download <pid> <key> <key_value>
+"Download locked file. A handle to the locked file can be identified with lockless-enum with the appropiate information",
+"Usage: lockless-download <pid> <key> <value>
 Example: \
    lockless-download 789 filename Cookies 
    lockless-download 789 handle_id 696
 lockless-download Options: \
     <pid> -     (Required): Process ID (PID) of the target application, queried for handles to desired locked file
-    <key> -     (Required): 'filename' or 'handle_id'
-    <value> -   (Required)  If 'filename' is chosen, provide the full name (including the extension) of the file to be downloaded. The filename is case sensitive
+    <key> -     (Required): This can either be 'filename' or 'handle_id'
+    <value> -   (Required): If 'filename' is chosen, provide the full name of the file to be downloaded. The filename is case sensitive
                             If 'handle_id' is chosen, provide the handle ID to the locked file to be downloaded
     ");
 
