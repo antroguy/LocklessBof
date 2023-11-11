@@ -91,6 +91,8 @@ extern "C" {
         wchar_t* filename = NULL;
         wchar_t* processName = NULL;
         datap parser;
+        BOOL Success = false;
+
 
         //Parse Beacon Arguments
         BeaconDataParse(&parser, buf, len);
@@ -320,6 +322,7 @@ extern "C" {
                     RtlInitUnicodeString(&substring, filename);
                     result = wcscmp(handleName, filename);
                     if (!result) {
+                        Success = true;
                         BeaconPrintf(CALLBACK_OUTPUT, "Process ID %ld [Handle ID% #d] - % .*S [% .*S]\n", handleInfo->Handles[i].UniqueProcessId, handleInfo->Handles[i].HandleValue,wcslen(handleName),handleName, objectName.Length / 2, objectName.Buffer);
                     }
                 }
@@ -327,9 +330,10 @@ extern "C" {
             }
 
         }
-        if (false) {
-            BeaconPrintf(CALLBACK_OUTPUT, "Error: Failed to find file handle within the specified process");
+        if (Success == false) {
+            BeaconPrintf(CALLBACK_OUTPUT, "Error: Failed to find identify a handle to the specified file");
         }
+
 
     //Perform Cleanup
     cleanup:

