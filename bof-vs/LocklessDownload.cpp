@@ -328,7 +328,7 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
                     #ifdef _DEBUG
                     // Construct the full path to the file on the desktop
                     WCHAR filePath[MAX_PATH];
-                    wcscpy(filePath, L"C:\\Users\\defaultuser\\Desktop\\"); ///Select your own directory for debugging purposes
+                    wcscpy(filePath, L"C:\\"); ///Select your own directory for debugging purposes
                     wcscat(filePath, fileName);
 
                     // Create or open the file for writing
