@@ -1,11 +1,3 @@
-# Example BOF cookie-monster  BOF 
-# The alias cookie-monster is used to locate and copy the cookie file used for Edge/Chrome/Firefox
-# Usage: cookie-monster
-#
-# Example:
-#    cookie-monster
-#
-
 beacon_command_register(
 "lockless-download",
 "Download locked file. A handle to the locked file can be identified with lockless-enum with the appropiate information",
