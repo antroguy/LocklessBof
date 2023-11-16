@@ -408,11 +408,6 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
         }
         return;
 
-        //NtQuerySystemInformation won't give us the correct buffer size,
-        //so we guess by doubling the buffer size.
-       
-
-        //Enumerate handles within Chrome processes
     }
 
 
