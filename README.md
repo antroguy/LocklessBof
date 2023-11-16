@@ -73,3 +73,4 @@ Downloaded file Cookies from process ID: 2940
 [ProcessListHandles](https://github.com/trustedsec/CS-Remote-OPs-BOF/tree/main/Remote/ProcessListHandles) by [TrustedSec](https://github.com/trustedsec)  
 [Lockless](https://github.com/GhostPack/Lockless) by [HarmJ0y](https://github.com/HarmJ0y)  
 [Fileless download](https://github.com/fortra/nanodump) by [Fortra](https://github.com/fortra)  
+Also big thanks to [KingOfTheNOPs](https://github.com/KingOfTheNOPs) for helping me resolve access mask issues with the handles. 
