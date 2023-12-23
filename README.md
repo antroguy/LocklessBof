@@ -9,7 +9,7 @@ Usage: lockless-enum <filename> <processname>
 Example: 
    lockless-enum Cookies 
    lockless-enum Cookies Chrome
-lockless- Enum Options: 
+lockless-enum Options: 
     <filename> -    (Required): The locked file's name.
     <processname> - (Optional): Narrow handle enumeration to the specified process. A partial name match is allowed (e.g., 'chro' for 'chrome')
 ```
@@ -28,7 +28,7 @@ lockless-download Options:
                             If 'handle_id' is chosen, provide the handle ID to the locked file to be downloaded
 ```
 ## Example
-Find out which process has a handle to the locked "Cookies" file and retrieve the handles id:
+Find out which process has a handle to the locked "Cookies" file and retrieve the handle id
 ```
 beacon> lockless-enum Cookies
 [+] host called home, sent: 6088 bytes
