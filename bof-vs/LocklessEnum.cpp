@@ -214,15 +214,8 @@ extern "C" {
                 if (NULL == processHandle) {
                     continue;
                 }
-            }               
-  
-
-            //Check if handle type is of type file, else continue to next handle
-            if (handleInfo->Handles[i].ObjectTypeIndex != HANDLE_TYPE_FILE) {
-                continue;
             }
-
-
+            
             UNICODE_STRING objectName;
             ULONG returnLength = 0;
             memset(&objectName, 0, sizeof(UNICODE_STRING));
