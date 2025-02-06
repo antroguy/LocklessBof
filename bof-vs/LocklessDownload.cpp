@@ -175,10 +175,7 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
             if (handleInfo->Handles[i].UniqueProcessId != pid) {
                 continue;
             }
-            //Check if handle type is of type file
-            if (handleInfo->Handles[i].ObjectTypeIndex != HANDLE_TYPE_FILE) {
-                continue;
-            }
+
             //If using handle_id, we can determine early if it is the handle we are interested in
             if (!wcscmp(L"handle_id", key)) {
                 if (value_int != handleInfo->Handles[i].HandleValue) {
